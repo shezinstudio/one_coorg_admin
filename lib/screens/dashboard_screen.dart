@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:one_coorg_admin/screens/bucket_images_tab.dart';
 import '../main.dart';
 import '../screens/login_screen.dart';
 import '../screens/towns_admin_screen.dart';
@@ -17,7 +18,11 @@ class _DashboardScreenState extends State<DashboardScreen> {
   static const _green = Color(0xFF2D6A4F);
   static const _greenDark = Color(0xFF1B4332);
 
-  final _screens = const [TownsAdminScreen(), PlacesAdminScreen()];
+  final _screens = const [
+    TownsAdminScreen(),
+    PlacesAdminScreen(),
+    BucketImagesTab(),
+  ];
 
   Future<void> _logout() async {
     await supabase.auth.signOut();
@@ -121,6 +126,12 @@ class _DashboardScreenState extends State<DashboardScreen> {
                   label: 'Places',
                   selected: _selectedIndex == 1,
                   onTap: () => setState(() => _selectedIndex = 1),
+                ),
+                _NavItem(
+                  icon: Icons.place_rounded,
+                  label: 'Images',
+                  selected: _selectedIndex == 2,
+                  onTap: () => setState(() => _selectedIndex = 2),
                 ),
 
                 const Spacer(),

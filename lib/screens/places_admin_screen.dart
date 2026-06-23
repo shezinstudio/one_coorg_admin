@@ -12,6 +12,7 @@ class _PlacesAdminScreenState extends State<PlacesAdminScreen> {
   List<Map<String, dynamic>> _places = [];
   bool _loading = true;
   bool _showForm = false;
+  Map<String, dynamic>? _editingPlace; // null = adding, non-null = editing
 
   static const _green = Color(0xFF2D6A4F);
   static const _bg = Color(0xFFF6FBF7);
@@ -61,6 +62,27 @@ class _PlacesAdminScreenState extends State<PlacesAdminScreen> {
     _showSnack('Place deleted');
   }
 
+  void _openAddForm() {
+    setState(() {
+      _editingPlace = null;
+      _showForm = true;
+    });
+  }
+
+  void _openEditForm(Map<String, dynamic> place) {
+    setState(() {
+      _editingPlace = place;
+      _showForm = true;
+    });
+  }
+
+  void _closeForm() {
+    setState(() {
+      _showForm = false;
+      _editingPlace = null;
+    });
+  }
+
   void _showSnack(String msg) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -104,7 +126,13 @@ class _PlacesAdminScreenState extends State<PlacesAdminScreen> {
                 ),
                 const Spacer(),
                 ElevatedButton.icon(
-                  onPressed: () => setState(() => _showForm = !_showForm),
+                  onPressed: () {
+                    if (_showForm) {
+                      _closeForm();
+                    } else {
+                      _openAddForm();
+                    }
+                  },
                   icon: Icon(_showForm ? Icons.close : Icons.add_rounded),
                   label: Text(_showForm ? 'Cancel' : 'Add Place'),
                   style: ElevatedButton.styleFrom(
@@ -129,13 +157,20 @@ class _PlacesAdminScreenState extends State<PlacesAdminScreen> {
               padding: const EdgeInsets.all(32),
               child: Column(
                 children: [
-                  // ── Add form ────────────────────────
+                  // ── Add / Edit form ─────────────────
                   if (_showForm) ...[
                     _PlaceForm(
+                      key: ValueKey(_editingPlace?['id'] ?? 'new'),
+                      existingPlace: _editingPlace,
                       onSaved: () {
-                        setState(() => _showForm = false);
+                        final wasEdit = _editingPlace != null;
+                        _closeForm();
                         _fetchPlaces();
-                        _showSnack('Place added successfully');
+                        _showSnack(
+                          wasEdit
+                              ? 'Place updated successfully'
+                              : 'Place added successfully',
+                        );
                       },
                     ),
                     const SizedBox(height: 24),
@@ -144,7 +179,11 @@ class _PlacesAdminScreenState extends State<PlacesAdminScreen> {
                   // ── Table ───────────────────────────
                   _loading
                       ? const Center(child: CircularProgressIndicator())
-                      : _PlacesTable(places: _places, onDelete: _deletePlace),
+                      : _PlacesTable(
+                          places: _places,
+                          onDelete: _deletePlace,
+                          onEdit: _openEditForm,
+                        ),
                 ],
               ),
             ),
@@ -159,12 +198,17 @@ class _PlacesAdminScreenState extends State<PlacesAdminScreen> {
 class _PlacesTable extends StatelessWidget {
   final List<Map<String, dynamic>> places;
   final void Function(String) onDelete;
+  final void Function(Map<String, dynamic>) onEdit;
 
-  const _PlacesTable({required this.places, required this.onDelete});
+  const _PlacesTable({
+    required this.places,
+    required this.onDelete,
+    required this.onEdit,
+  });
 
   Color _categoryColor(String? cat) {
     switch (cat?.toLowerCase()) {
-      case 'waterfall':
+      case 'waterfalls':
         return const Color(0xFF0077B6);
       case 'wildlife':
         return const Color(0xFF2D6A4F);
@@ -227,7 +271,7 @@ class _PlacesTable extends StatelessWidget {
             3: FlexColumnWidth(1.5),
             4: FlexColumnWidth(0.8),
             5: FlexColumnWidth(0.6),
-            6: FlexColumnWidth(0.6),
+            6: FlexColumnWidth(0.9),
           },
           children: [
             // Header
@@ -349,14 +393,28 @@ class _PlacesTable extends StatelessWidget {
                           ),
                   ),
                   _cell(
-                    IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: Colors.red,
-                        size: 18,
-                      ),
-                      onPressed: () => onDelete(p['id']),
-                      tooltip: 'Delete',
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.edit_outlined,
+                            color: Color(0xFF2D6A4F),
+                            size: 18,
+                          ),
+                          onPressed: () => onEdit(p),
+                          tooltip: 'Edit',
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline_rounded,
+                            color: Colors.red,
+                            size: 18,
+                          ),
+                          onPressed: () => onDelete(p['id']),
+                          tooltip: 'Delete',
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -374,10 +432,14 @@ class _PlacesTable extends StatelessWidget {
   );
 }
 
-// ── Place Form ────────────────────────────────────────────
+// ── Place Form (handles both Add and Edit) ─────────────────
 class _PlaceForm extends StatefulWidget {
   final VoidCallback onSaved;
-  const _PlaceForm({required this.onSaved});
+  final Map<String, dynamic>? existingPlace; // null = add mode
+
+  const _PlaceForm({super.key, required this.onSaved, this.existingPlace});
+
+  bool get isEditing => existingPlace != null;
 
   @override
   State<_PlaceForm> createState() => _PlaceFormState();
@@ -386,25 +448,25 @@ class _PlaceForm extends StatefulWidget {
 class _PlaceFormState extends State<_PlaceForm> {
   final _formKey = GlobalKey<FormState>();
   bool _saving = false;
-  bool _isTopRated = false;
+  late bool _isTopRated;
 
-  final _name = TextEditingController();
-  final _desc = TextEditingController();
-  final _emoji = TextEditingController();
-  final _imageUrl = TextEditingController();
-  final _location = TextEditingController();
-  final _fullLocation = TextEditingController();
-  final _about = TextEditingController();
-  final _entryFee = TextEditingController(text: 'Free');
-  final _bestTime = TextEditingController();
-  final _mapLabel = TextEditingController();
-  final _lat = TextEditingController();
-  final _lng = TextEditingController();
-  final _activitiesCtrl = TextEditingController();
+  late final TextEditingController _name;
+  late final TextEditingController _desc;
+  late final TextEditingController _emoji;
+  late final TextEditingController _imageUrl;
+  late final TextEditingController _location;
+  late final TextEditingController _fullLocation;
+  late final TextEditingController _about;
+  late final TextEditingController _entryFee;
+  late final TextEditingController _bestTime;
+  late final TextEditingController _mapLabel;
+  late final TextEditingController _lat;
+  late final TextEditingController _lng;
+  late final TextEditingController _activitiesCtrl;
 
   String? _selectedCategory;
   static const _categories = [
-    'Waterfall',
+    'Waterfalls',
     'Wildlife',
     'Temple',
     'Viewpoint',
@@ -414,6 +476,60 @@ class _PlaceFormState extends State<_PlaceForm> {
     'Beach',
   ];
   static const _green = Color(0xFF2D6A4F);
+
+  @override
+  void initState() {
+    super.initState();
+    final p = widget.existingPlace;
+
+    _name = TextEditingController(text: p?['name'] ?? '');
+    _desc = TextEditingController(text: p?['description'] ?? '');
+    _emoji = TextEditingController(text: p?['emoji'] ?? '');
+    _imageUrl = TextEditingController(text: p?['image_url'] ?? '');
+    _location = TextEditingController(text: p?['location'] ?? '');
+    _fullLocation = TextEditingController(text: p?['full_location'] ?? '');
+    _about = TextEditingController(text: p?['about'] ?? '');
+    _entryFee = TextEditingController(text: p?['entry_fee'] ?? 'Free');
+    _bestTime = TextEditingController(text: p?['best_time'] ?? '');
+    _mapLabel = TextEditingController(text: p?['map_label'] ?? '');
+    _lat = TextEditingController(
+      text: p?['lat'] != null ? p!['lat'].toString() : '',
+    );
+    _lng = TextEditingController(
+      text: p?['lng'] != null ? p!['lng'].toString() : '',
+    );
+
+    final existingActivities = p?['activities'];
+    final activitiesText = existingActivities is List
+        ? existingActivities.join(', ')
+        : '';
+    _activitiesCtrl = TextEditingController(text: activitiesText);
+
+    final rawCategory = p?['category'] as String?;
+    _selectedCategory =
+        (rawCategory != null && _categories.contains(rawCategory))
+        ? rawCategory
+        : null;
+    _isTopRated = p?['is_top_rated'] == true;
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _desc.dispose();
+    _emoji.dispose();
+    _imageUrl.dispose();
+    _location.dispose();
+    _fullLocation.dispose();
+    _about.dispose();
+    _entryFee.dispose();
+    _bestTime.dispose();
+    _mapLabel.dispose();
+    _lat.dispose();
+    _lng.dispose();
+    _activitiesCtrl.dispose();
+    super.dispose();
+  }
 
   Future<void> _save() async {
     if (!_formKey.currentState!.validate()) return;
@@ -425,7 +541,7 @@ class _PlaceFormState extends State<_PlaceForm> {
         .where((s) => s.isNotEmpty)
         .toList();
 
-    await supabase.from('places').insert({
+    final payload = {
       'name': _name.text.trim(),
       'description': _desc.text.trim(),
       'emoji': _emoji.text.trim(),
@@ -441,10 +557,21 @@ class _PlaceFormState extends State<_PlaceForm> {
       'lat': double.tryParse(_lat.text),
       'lng': double.tryParse(_lng.text),
       'activities': activities,
-    });
+    };
 
-    setState(() => _saving = false);
-    widget.onSaved();
+    try {
+      if (widget.isEditing) {
+        await supabase
+            .from('places')
+            .update(payload)
+            .eq('id', widget.existingPlace!['id']);
+      } else {
+        await supabase.from('places').insert(payload);
+      }
+      widget.onSaved();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -464,9 +591,9 @@ class _PlaceFormState extends State<_PlaceForm> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Add New Place',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            Text(
+              widget.isEditing ? 'Edit Place' : 'Add New Place',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 24),
 
@@ -590,7 +717,11 @@ class _PlaceFormState extends State<_PlaceForm> {
                             ),
                           )
                         : const Icon(Icons.save_rounded, size: 18),
-                    label: Text(_saving ? 'Saving...' : 'Save Place'),
+                    label: Text(
+                      _saving
+                          ? 'Saving...'
+                          : (widget.isEditing ? 'Update Place' : 'Save Place'),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _green,
                       foregroundColor: Colors.white,

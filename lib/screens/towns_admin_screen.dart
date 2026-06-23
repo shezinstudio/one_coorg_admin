@@ -12,6 +12,7 @@ class _TownsAdminScreenState extends State<TownsAdminScreen> {
   List<Map<String, dynamic>> _towns = [];
   bool _loading = true;
   bool _showForm = false;
+  Map<String, dynamic>? _editingTown; // null = adding, non-null = editing
 
   static const _green = Color(0xFF2D6A4F);
   static const _bg = Color(0xFFF6FBF7);
@@ -37,6 +38,27 @@ class _TownsAdminScreenState extends State<TownsAdminScreen> {
     await supabase.from('towns').delete().eq('id', id);
     _fetchTowns();
     _showSnack('Town deleted');
+  }
+
+  void _openAddForm() {
+    setState(() {
+      _editingTown = null;
+      _showForm = true;
+    });
+  }
+
+  void _openEditForm(Map<String, dynamic> town) {
+    setState(() {
+      _editingTown = town;
+      _showForm = true;
+    });
+  }
+
+  void _closeForm() {
+    setState(() {
+      _showForm = false;
+      _editingTown = null;
+    });
   }
 
   Future<bool> _showConfirm(String message) async {
@@ -107,7 +129,13 @@ class _TownsAdminScreenState extends State<TownsAdminScreen> {
                 ),
                 const Spacer(),
                 ElevatedButton.icon(
-                  onPressed: () => setState(() => _showForm = !_showForm),
+                  onPressed: () {
+                    if (_showForm) {
+                      _closeForm();
+                    } else {
+                      _openAddForm();
+                    }
+                  },
                   icon: Icon(_showForm ? Icons.close : Icons.add_rounded),
                   label: Text(_showForm ? 'Cancel' : 'Add Town'),
                   style: ElevatedButton.styleFrom(
@@ -132,13 +160,20 @@ class _TownsAdminScreenState extends State<TownsAdminScreen> {
               padding: const EdgeInsets.all(32),
               child: Column(
                 children: [
-                  // ── Add form ────────────────────────
+                  // ── Add / Edit form ─────────────────
                   if (_showForm) ...[
                     _TownForm(
+                      key: ValueKey(_editingTown?['id'] ?? 'new'),
+                      existingTown: _editingTown,
                       onSaved: () {
-                        setState(() => _showForm = false);
+                        final wasEdit = _editingTown != null;
+                        _closeForm();
                         _fetchTowns();
-                        _showSnack('Town added successfully');
+                        _showSnack(
+                          wasEdit
+                              ? 'Town updated successfully'
+                              : 'Town added successfully',
+                        );
                       },
                     ),
                     const SizedBox(height: 24),
@@ -150,6 +185,7 @@ class _TownsAdminScreenState extends State<TownsAdminScreen> {
                       : _TownsTable(
                           towns: _towns,
                           onDelete: _deleteTown,
+                          onEdit: _openEditForm,
                           onRefresh: _fetchTowns,
                         ),
                 ],
@@ -166,11 +202,13 @@ class _TownsAdminScreenState extends State<TownsAdminScreen> {
 class _TownsTable extends StatelessWidget {
   final List<Map<String, dynamic>> towns;
   final void Function(int) onDelete;
+  final void Function(Map<String, dynamic>) onEdit;
   final VoidCallback onRefresh;
 
   const _TownsTable({
     required this.towns,
     required this.onDelete,
+    required this.onEdit,
     required this.onRefresh,
   });
 
@@ -223,7 +261,7 @@ class _TownsTable extends StatelessWidget {
             2: FlexColumnWidth(2),
             3: FlexColumnWidth(1),
             4: FlexColumnWidth(1),
-            5: FlexColumnWidth(0.8),
+            5: FlexColumnWidth(1.2),
           },
           children: [
             // Header
@@ -328,14 +366,28 @@ class _TownsTable extends StatelessWidget {
                     ),
                   ),
                   _cell(
-                    IconButton(
-                      icon: const Icon(
-                        Icons.delete_outline_rounded,
-                        color: Colors.red,
-                        size: 18,
-                      ),
-                      onPressed: () => onDelete(t['id']),
-                      tooltip: 'Delete',
+                    Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        IconButton(
+                          icon: const Icon(
+                            Icons.edit_outlined,
+                            color: _green,
+                            size: 18,
+                          ),
+                          onPressed: () => onEdit(t),
+                          tooltip: 'Edit',
+                        ),
+                        IconButton(
+                          icon: const Icon(
+                            Icons.delete_outline_rounded,
+                            color: Colors.red,
+                            size: 18,
+                          ),
+                          onPressed: () => onDelete(t['id']),
+                          tooltip: 'Delete',
+                        ),
+                      ],
                     ),
                   ),
                 ],
@@ -353,10 +405,14 @@ class _TownsTable extends StatelessWidget {
   );
 }
 
-// ── Town Form ─────────────────────────────────────────────
+// ── Town Form (handles both Add and Edit) ──────────────────
 class _TownForm extends StatefulWidget {
   final VoidCallback onSaved;
-  const _TownForm({required this.onSaved});
+  final Map<String, dynamic>? existingTown; // null = add mode
+
+  const _TownForm({super.key, required this.onSaved, this.existingTown});
+
+  bool get isEditing => existingTown != null;
 
   @override
   State<_TownForm> createState() => _TownFormState();
@@ -366,22 +422,75 @@ class _TownFormState extends State<_TownForm> {
   final _formKey = GlobalKey<FormState>();
   bool _saving = false;
 
-  final _name = TextEditingController();
-  final _aka = TextEditingController();
-  final _desc = TextEditingController();
-  final _emoji = TextEditingController();
-  final _imagePath = TextEditingController();
-  final _fullLocation = TextEditingController();
-  final _about = TextEditingController();
-  final _weather = TextEditingController();
-  final _population = TextEditingController();
-  final _lat = TextEditingController();
-  final _lng = TextEditingController();
+  late final TextEditingController _name;
+  late final TextEditingController _aka;
+  late final TextEditingController _desc;
+  late final TextEditingController _emoji;
+  late final TextEditingController _imagePath;
+  late final TextEditingController _fullLocation;
+  late final TextEditingController _about;
+  late final TextEditingController _weather;
+  late final TextEditingController _population;
+  late final TextEditingController _lat;
+  late final TextEditingController _lng;
 
   // Nearby places
   final List<Map<String, TextEditingController>> _nearbyPlaces = [];
 
   static const _green = Color(0xFF2D6A4F);
+
+  @override
+  void initState() {
+    super.initState();
+    final t = widget.existingTown;
+
+    _name = TextEditingController(text: t?['name'] ?? '');
+    _aka = TextEditingController(text: t?['aka'] ?? '');
+    _desc = TextEditingController(text: t?['description'] ?? '');
+    _emoji = TextEditingController(text: t?['emoji'] ?? '');
+    _imagePath = TextEditingController(text: t?['image_path'] ?? '');
+    _fullLocation = TextEditingController(text: t?['full_location'] ?? '');
+    _about = TextEditingController(text: t?['about'] ?? '');
+    _weather = TextEditingController(text: t?['weather'] ?? '');
+    _population = TextEditingController(text: t?['population'] ?? '');
+    _lat = TextEditingController(
+      text: t?['latitude'] != null ? t!['latitude'].toString() : '',
+    );
+    _lng = TextEditingController(
+      text: t?['longitude'] != null ? t!['longitude'].toString() : '',
+    );
+
+    // Pre-fill nearby places if editing
+    final existingNearby = t?['nearby_places'];
+    if (existingNearby is List) {
+      for (final p in existingNearby) {
+        _nearbyPlaces.add({
+          'name': TextEditingController(text: p['name']?.toString() ?? ''),
+          'dist': TextEditingController(text: p['dist']?.toString() ?? ''),
+        });
+      }
+    }
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _aka.dispose();
+    _desc.dispose();
+    _emoji.dispose();
+    _imagePath.dispose();
+    _fullLocation.dispose();
+    _about.dispose();
+    _weather.dispose();
+    _population.dispose();
+    _lat.dispose();
+    _lng.dispose();
+    for (final p in _nearbyPlaces) {
+      p['name']!.dispose();
+      p['dist']!.dispose();
+    }
+    super.dispose();
+  }
 
   void _addNearbyPlace() {
     setState(
@@ -408,7 +517,7 @@ class _TownFormState extends State<_TownForm> {
         .map((p) => {'name': p['name']!.text, 'dist': p['dist']!.text})
         .toList();
 
-    await supabase.from('towns').insert({
+    final payload = {
       'name': _name.text.trim(),
       'aka': _aka.text.trim(),
       'description': _desc.text.trim(),
@@ -421,10 +530,21 @@ class _TownFormState extends State<_TownForm> {
       'population': _population.text.trim(),
       'latitude': double.tryParse(_lat.text) ?? 0.0,
       'longitude': double.tryParse(_lng.text) ?? 0.0,
-    });
+    };
 
-    setState(() => _saving = false);
-    widget.onSaved();
+    try {
+      if (widget.isEditing) {
+        await supabase
+            .from('towns')
+            .update(payload)
+            .eq('id', widget.existingTown!['id']);
+      } else {
+        await supabase.from('towns').insert(payload);
+      }
+      widget.onSaved();
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
   @override
@@ -444,9 +564,9 @@ class _TownFormState extends State<_TownForm> {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text(
-              'Add New Town',
-              style: TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
+            Text(
+              widget.isEditing ? 'Edit Town' : 'Add New Town',
+              style: const TextStyle(fontSize: 18, fontWeight: FontWeight.w700),
             ),
             const SizedBox(height: 24),
 
@@ -581,7 +701,11 @@ class _TownFormState extends State<_TownForm> {
                             ),
                           )
                         : const Icon(Icons.save_rounded, size: 18),
-                    label: Text(_saving ? 'Saving...' : 'Save Town'),
+                    label: Text(
+                      _saving
+                          ? 'Saving...'
+                          : (widget.isEditing ? 'Update Town' : 'Save Town'),
+                    ),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: _green,
                       foregroundColor: Colors.white,
