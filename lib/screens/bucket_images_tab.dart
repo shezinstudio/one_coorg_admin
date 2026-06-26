@@ -1,7 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:image_picker/image_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'dart:html' as html;
+// Remove: import 'package:image_picker/image_picker.dart';
 
 class BucketImagesTab extends StatefulWidget {
   const BucketImagesTab({super.key});
@@ -47,15 +48,27 @@ class _BucketImagesTabState extends State<BucketImagesTab> {
   }
 
   Future<void> _pickAndUploadImage() async {
-    final picker = ImagePicker();
-    final XFile? picked = await picker.pickImage(source: ImageSource.gallery);
-    if (picked == null) return;
+    final html.FileUploadInputElement uploadInput =
+        html.FileUploadInputElement();
+    uploadInput.accept = 'image/*';
+    uploadInput.click();
+
+    await uploadInput.onChange.first;
+
+    final file = uploadInput.files?.first;
+    if (file == null) return;
 
     setState(() => _uploading = true);
     try {
-      final Uint8List bytes = await picked.readAsBytes();
+      final reader = html.FileReader();
+      reader.readAsArrayBuffer(file);
+      await reader.onLoad.first;
+
+      final Uint8List bytes = Uint8List.fromList(
+        (reader.result as dynamic).asUint8List(),
+      );
       final String fileName =
-          '${DateTime.now().millisecondsSinceEpoch}_${picked.name}';
+          '${DateTime.now().millisecondsSinceEpoch}_${file.name}';
 
       await _supabase.storage
           .from(bucketName)
@@ -63,7 +76,7 @@ class _BucketImagesTabState extends State<BucketImagesTab> {
             fileName,
             bytes,
             fileOptions: FileOptions(
-              contentType: picked.mimeType ?? 'image/jpeg',
+              contentType: file.type.isNotEmpty ? file.type : 'image/jpeg',
               upsert: false,
             ),
           );
@@ -76,6 +89,36 @@ class _BucketImagesTabState extends State<BucketImagesTab> {
       setState(() => _uploading = false);
     }
   }
+  // Future<void> _pickAndUploadImage() async {
+  //   final picker = ImagePicker();
+  //   final XFile? picked = await picker.pickImage(source: ImageSource.gallery);
+  //   if (picked == null) return;
+
+  //   setState(() => _uploading = true);
+  //   try {
+  //     final Uint8List bytes = await picked.readAsBytes();
+  //     final String fileName =
+  //         '${DateTime.now().millisecondsSinceEpoch}_${picked.name}';
+
+  //     await _supabase.storage
+  //         .from(bucketName)
+  //         .uploadBinary(
+  //           fileName,
+  //           bytes,
+  //           fileOptions: FileOptions(
+  //             contentType: picked.mimeType ?? 'image/jpeg',
+  //             upsert: false,
+  //           ),
+  //         );
+
+  //     await _loadImages();
+  //     _showMessage('Image uploaded successfully');
+  //   } catch (e) {
+  //     _showError('Upload failed: $e');
+  //   } finally {
+  //     setState(() => _uploading = false);
+  //   }
+  // }
 
   Future<void> _confirmDelete(FileObject file) async {
     final confirmed = await showDialog<bool>(

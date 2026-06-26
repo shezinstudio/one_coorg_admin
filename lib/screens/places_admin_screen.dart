@@ -210,16 +210,16 @@ class _PlacesTable extends StatelessWidget {
     switch (cat?.toLowerCase()) {
       case 'waterfalls':
         return const Color(0xFF0077B6);
-      case 'wildlife':
+      case 'viewpoints':
         return const Color(0xFF2D6A4F);
-      case 'temple':
+      case 'temples':
         return const Color(0xFFE07C24);
-      case 'viewpoint':
+      case 'heritage':
         return const Color(0xFF9B5DE5);
-      case 'adventure':
-        return const Color(0xFFE63946);
+      case 'reservoirs':
+        return const Color.fromARGB(255, 95, 217, 107);
       default:
-        return Colors.grey;
+        return const Color.fromARGB(255, 0, 0, 0);
     }
   }
 
@@ -467,13 +467,10 @@ class _PlaceFormState extends State<_PlaceForm> {
   String? _selectedCategory;
   static const _categories = [
     'Waterfalls',
-    'Wildlife',
-    'Temple',
-    'Viewpoint',
-    'Adventure',
+    'Temples',
+    'Viewpoints',
     'Heritage',
-    'Nature',
-    'Beach',
+    'Reservoirs',
   ];
   static const _green = Color(0xFF2D6A4F);
 
